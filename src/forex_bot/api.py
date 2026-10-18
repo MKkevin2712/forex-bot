@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from forex_bot.backtest import run_backtest
+from forex_bot.backtest import conversion_pairs, run_backtest
 from forex_bot.brokers import Broker, BrokerError, create_broker
 from forex_bot.config import ROOT, Granularity, Settings, StrategyParams
 from forex_bot.journal import Journal, create_journal
@@ -147,12 +147,19 @@ def create_app(
         run_settings = settings.model_copy(update=overrides)
         instruments = [i.upper() for i in (request.instruments or settings.instruments)]
         try:
-            data = {
-                i: broker().candles(i, run_settings.granularity, request.count) for i in instruments
-            }
             account_ccy = broker().account().currency
+            gran = run_settings.granularity
+            data = {i: broker().candles(i, gran, request.count) for i in instruments}
+            conversions = {
+                pair: broker().candles(pair, gran, request.count)
+                for pair in conversion_pairs(instruments, account_ccy)
+            }
             result = run_backtest(
-                data, run_settings, request.initial_balance, account_currency=account_ccy
+                data,
+                run_settings,
+                request.initial_balance,
+                account_currency=account_ccy,
+                conversions=conversions,
             )
         except BrokerError as exc:
             raise HTTPException(502, str(exc)) from exc

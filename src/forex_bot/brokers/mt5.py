@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from datetime import UTC, datetime
 
 import pandas as pd
@@ -31,6 +32,7 @@ class MT5Broker(Broker):
         symbol_suffix: str = "",
         magic: int = 240611,
         deviation: int = 20,
+        utc_offset_hours: int | None = None,
         module=None,
     ) -> None:
         if module is None:
@@ -44,6 +46,7 @@ class MT5Broker(Broker):
         self.suffix = symbol_suffix
         self.magic = magic
         self.deviation = deviation
+        self._utc_offset = utc_offset_hours
 
         kwargs: dict = {}
         if path:
@@ -62,6 +65,25 @@ class MT5Broker(Broker):
     def _instrument(self, symbol: str) -> str:
         core = symbol[: len(symbol) - len(self.suffix)] if self.suffix else symbol
         return f"{core[:3]}_{core[3:6]}"
+
+    # --- Heure du serveur ---
+    def utc_offset(self) -> int:
+        """Décalage en heures entre l'heure du serveur MT5 et UTC (souvent +2 ou +3).
+
+        MT5 date les bougies, positions et transactions à l'heure du serveur. Le décalage est
+        déduit du dernier tick d'EUR/USD ; s'il est trop ancien (week-end), on ne devine pas.
+        """
+        if self._utc_offset is None:
+            tick = self.mt5.symbol_info_tick(self._symbol("EUR_USD"))
+            diff = (getattr(tick, "time", 0) - time.time()) / 3600 if tick else 0.0
+            hours = round(diff)
+            if abs(diff - hours) > 0.25 or not -12 <= hours <= 14:
+                return 0
+            self._utc_offset = hours
+        return self._utc_offset
+
+    def _to_utc(self, server_epoch: float) -> datetime:
+        return datetime.fromtimestamp(server_epoch - self.utc_offset() * 3600, UTC)
 
     def _info(self, instrument: str):
         symbol = self._symbol(instrument)
@@ -104,14 +126,20 @@ class MT5Broker(Broker):
         if rates is None or len(rates) == 0:
             return pd.DataFrame(columns=CANDLE_COLUMNS)
         df = pd.DataFrame(rates)
-        df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+        df["time"] = pd.to_datetime(df["time"] - self.utc_offset() * 3600, unit="s", utc=True)
         df["volume"] = df["tick_volume"].astype(float)
         return df[CANDLE_COLUMNS]
 
     def quote(self, instrument: str) -> Quote:
         info = self._info(instrument)
-        tick = self.mt5.symbol_info_tick(self._symbol(instrument))
-        if tick is None:
+        # juste après l'ajout d'un symbole à l'observation du marché, MT5 renvoie 0
+        # le temps de recevoir le premier prix
+        for _ in range(10):
+            tick = self.mt5.symbol_info_tick(self._symbol(instrument))
+            if tick is not None and tick.bid > 0 and tick.ask > 0:
+                break
+            time.sleep(0.3)
+        else:
             raise BrokerError(f"Pas de prix pour {instrument}")
         tradeable = info.trade_mode == self.mt5.SYMBOL_TRADE_MODE_FULL
         return Quote(bid=float(tick.bid), ask=float(tick.ask), tradeable=tradeable)
@@ -141,7 +169,7 @@ class MT5Broker(Broker):
                     stop_loss=float(p.sl) or None,
                     take_profit=float(p.tp) or None,
                     unrealized_pnl=float(p.profit),
-                    open_time=datetime.fromtimestamp(p.time, UTC),
+                    open_time=self._to_utc(p.time),
                 )
             )
         return trades
@@ -217,7 +245,7 @@ class MT5Broker(Broker):
         return ClosedTrade(
             trade_id=trade_id,
             exit_price=float(last.price),
-            exit_time=datetime.fromtimestamp(last.time, UTC),
+            exit_time=self._to_utc(last.time),
             pnl=float(pnl),
             reason=reason,
         )

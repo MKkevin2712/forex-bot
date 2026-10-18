@@ -26,15 +26,38 @@ def pip_size(instrument: str) -> float:
     return 0.01 if split_instrument(instrument)[1] == "JPY" else 0.0001
 
 
-def value_per_unit(instrument: str, price: float, account_currency: str = "USD") -> float:
+def value_per_unit(
+    instrument: str,
+    price: float,
+    account_currency: str = "USD",
+    quote_to_account: float | None = None,
+) -> float:
+    """Valeur en devise du compte d'1 unité qui bouge de 1,0 (voir Broker.value_per_unit).
+
+    Pour une paire sans la devise du compte (GBP/USD sur un compte en EUR), il faut le taux
+    de conversion de la devise de cotation vers la devise du compte (`quote_to_account`).
+    """
     base, quote = split_instrument(instrument)
     if quote == account_currency:
         return 1.0
     if base == account_currency:
         return 1.0 / price
-    raise ValueError(
-        f"Backtest : {instrument} ne contient pas la devise du compte ({account_currency})"
-    )
+    if quote_to_account is None:
+        raise ValueError(
+            f"Backtest : il faut l'historique de {account_currency}_{quote} pour convertir "
+            f"les gains de {instrument} en {account_currency}"
+        )
+    return quote_to_account
+
+
+def conversion_pairs(instruments: list[str], account_currency: str) -> list[str]:
+    """Paires à charger en plus pour convertir les gains en devise du compte."""
+    needed = set()
+    for instrument in instruments:
+        base, quote = split_instrument(instrument)
+        if account_currency not in (base, quote):
+            needed.add(f"{account_currency}_{quote}")
+    return sorted(needed - set(instruments))
 
 
 @dataclass
@@ -78,9 +101,32 @@ def run_backtest(
     initial_balance: float = 10_000.0,
     spread_pips: dict[str, float] | None = None,
     account_currency: str = "USD",
+    conversions: dict[str, pd.DataFrame] | None = None,
 ) -> BacktestResult:
     s, p = settings, settings.strategy
     spreads = {**DEFAULT_SPREAD_PIPS, **(spread_pips or {})}
+
+    # Cours d'ouverture des paires de conversion (connus au moment où on les utilise)
+    opens = {
+        pair: df.set_index("time")["open"].sort_index()
+        for pair, df in {**(conversions or {}), **data}.items()
+    }
+
+    def vpu(inst: str, price: float, t: pd.Timestamp) -> float:
+        quote = split_instrument(inst)[1]
+        rate = None
+        for pair, invert in (
+            (f"{account_currency}_{quote}", True),
+            (f"{quote}_{account_currency}", False),
+        ):
+            if pair in opens:
+                series = opens[pair]
+                value = series.asof(t)
+                value = series.iloc[0] if pd.isna(value) else value
+                rate = 1 / value if invert else value
+                break
+        return value_per_unit(inst, price, account_currency, rate)
+
     frames = {inst: compute_indicators(df, p).reset_index(drop=True) for inst, df in data.items()}
     rows_by_time: dict[pd.Timestamp, list[tuple[str, int]]] = {}
     for inst, df in frames.items():
@@ -100,12 +146,7 @@ def run_backtest(
     def close(pos: _Position, time: pd.Timestamp, price: float, reason: str) -> None:
         nonlocal balance
         sign = 1 if pos.direction == LONG else -1
-        pnl = (
-            (price - pos.entry_price)
-            * sign
-            * pos.units
-            * value_per_unit(pos.instrument, price, account_currency)
-        )
+        pnl = (price - pos.entry_price) * sign * pos.units * vpu(pos.instrument, price, time)
         balance += pnl
         realized_by_day[time.date()] = realized_by_day.get(time.date(), 0.0) + pnl
         trades.append(
@@ -137,13 +178,12 @@ def run_backtest(
                 direction, atr_value, reason = pending.pop(inst)
                 entry = bar["open"] + hs if direction == LONG else bar["open"] - hs
                 stop, target = stop_and_target(direction, entry, atr_value, p)
-                vpu = value_per_unit(inst, entry, account_currency)
                 units = position_units(
                     balance=balance,
                     risk_fraction=s.risk_per_trade,
                     entry=entry,
                     stop=stop,
-                    value_per_unit=vpu,
+                    value_per_unit=vpu(inst, entry, t),
                     max_leverage=s.max_leverage,
                 )
                 if units > 0:

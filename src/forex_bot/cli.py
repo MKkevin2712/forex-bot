@@ -53,19 +53,29 @@ def cmd_download(settings: Settings, args: argparse.Namespace) -> None:
 
 
 def cmd_backtest(settings: Settings, args: argparse.Namespace) -> None:
-    from forex_bot.backtest import load_csv, run_backtest
+    from forex_bot.backtest import conversion_pairs, load_csv, run_backtest
 
     instruments = args.instruments or settings.instruments
     if args.csv_dir:
-        data = {
-            i: load_csv(Path(args.csv_dir) / f"{i}_{settings.granularity}.csv") for i in instruments
-        }
+        currency = args.currency or "USD"
+
+        def load(instrument: str):
+            return load_csv(Path(args.csv_dir) / f"{instrument}_{settings.granularity}.csv")
     else:
         from forex_bot.brokers import create_broker
 
         broker = create_broker(settings)
-        data = {i: broker.candles(i, settings.granularity, args.count) for i in instruments}
-    result = run_backtest(data, settings, args.balance).to_dict()
+        currency = args.currency or broker.account().currency
+
+        def load(instrument: str):
+            return broker.candles(instrument, settings.granularity, args.count)
+
+    data = {i: load(i) for i in instruments}
+    conversions = {pair: load(pair) for pair in conversion_pairs(instruments, currency)}
+    result = run_backtest(
+        data, settings, args.balance, account_currency=currency, conversions=conversions
+    ).to_dict()
+    print(f"Devise        : {currency}")
 
     stats = result["stats"]
     print(f"Période       : {result['period'].get('start')} -> {result['period'].get('end')}")
@@ -131,6 +141,7 @@ def main(argv: list[str] | None = None) -> None:
     bt.add_argument("--instruments", nargs="+")
     bt.add_argument("--count", type=int, default=5000)
     bt.add_argument("--balance", type=float, default=10_000)
+    bt.add_argument("--currency", help="devise du compte (par défaut celle du courtier, ou USD)")
     bt.add_argument("--csv-dir", help="dossier de CSV (sinon téléchargement depuis le courtier)")
     bt.add_argument("--out", default=str(ROOT / "reports" / "backtest.json"))
     bt.set_defaults(func=cmd_backtest)

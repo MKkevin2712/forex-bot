@@ -248,6 +248,42 @@ def test_mt5_spec_value_and_order():
     assert fill.trade_id == "777" and fill.units == pytest.approx(20_000)
 
 
+def test_mt5_server_time_converted_to_utc():
+    import time
+
+    import numpy as np
+
+    module = FakeMT5()
+    module.symbol_info_tick = lambda symbol: SimpleNamespace(
+        bid=1.1, ask=1.1001, time=int(time.time()) + 2 * 3600
+    )
+    module.TIMEFRAME_H4 = 16388
+    server_midnight = 1_760_918_400  # 2025-10-20 00:00 à l'heure du serveur
+    module.copy_rates_from_pos = lambda *a: np.array(
+        [(server_midnight, 1.1, 1.2, 1.0, 1.15, 100)],
+        dtype=[
+            ("time", "i8"),
+            ("open", "f8"),
+            ("high", "f8"),
+            ("low", "f8"),
+            ("close", "f8"),
+            ("tick_volume", "i8"),
+        ],
+    )
+    broker = MT5Broker(module=module)
+    assert broker.utc_offset() == 2
+    df = broker.candles("EUR_USD", "H4", 1)
+    assert df["time"].iloc[0].hour == 22  # minuit serveur = 22h UTC la veille
+
+
+def test_mt5_quote_waits_for_first_price(monkeypatch):
+    monkeypatch.setattr("forex_bot.brokers.mt5.time.sleep", lambda s: None)
+    module = FakeMT5()
+    ticks = iter([SimpleNamespace(bid=0.0, ask=0.0), SimpleNamespace(bid=157.8, ask=157.81)])
+    module.symbol_info_tick = lambda symbol: next(ticks)
+    assert MT5Broker(module=module, utc_offset_hours=0).quote("USD_JPY").bid == 157.8
+
+
 def test_mt5_closed_trade_sums_costs():
     broker = MT5Broker(module=FakeMT5())
     closed = broker.closed_trade("777")

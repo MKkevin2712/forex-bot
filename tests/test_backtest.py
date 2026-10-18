@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from fakes import trend_candles
 
-from forex_bot.backtest import run_backtest, value_per_unit
+from forex_bot.backtest import conversion_pairs, run_backtest, value_per_unit
 
 
 def _bt_settings(settings):
@@ -51,6 +51,22 @@ def test_no_lookahead(settings):
     long = run_backtest({"EUR_USD": full}, s)
     closed_early = [t for t in short.trades if t["close_reason"] != "FIN"]
     assert closed_early == long.trades[: len(closed_early)]
+
+
+def test_eur_account_converts_usd_gains(settings):
+    """Compte en EUR : les gains en USD de GBP/USD sont convertis au cours EUR/USD du moment."""
+    s = _bt_settings(settings)
+    gbp = trend_candles(600, start=1.3)
+    eurusd = trend_candles(600, start=1.25, step=0, noise=0)  # EUR/USD fixe à 1,25
+    usd = run_backtest({"GBP_USD": gbp}, s, account_currency="USD")
+    eur = run_backtest({"GBP_USD": gbp}, s, account_currency="EUR", conversions={"EUR_USD": eurusd})
+    assert conversion_pairs(["GBP_USD", "USD_JPY"], "EUR") == ["EUR_JPY", "EUR_USD"]
+    # même risque de 1 % en EUR : la taille en unités est 1,25 fois plus grande, le P&L en EUR
+    # par trade identique en proportion du capital
+    assert eur.trades[0]["units"] == pytest.approx(usd.trades[0]["units"] * 1.25, rel=0.01)
+    assert eur.stats["total_pnl"] == pytest.approx(usd.stats["total_pnl"], rel=0.05)
+    with pytest.raises(ValueError, match="EUR_USD"):
+        run_backtest({"GBP_USD": gbp}, s, account_currency="EUR")
 
 
 def test_value_per_unit():

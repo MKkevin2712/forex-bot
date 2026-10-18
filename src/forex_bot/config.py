@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     mt5_path: str | None = None
     mt5_symbol_suffix: str = ""
     mt5_magic: int = 240611
+    mt5_utc_offset: int | None = None  # heure serveur - UTC ; détecté automatiquement si vide
 
     # --- Stockage ---
     journal: Literal["sqlite", "supabase"] = "sqlite"

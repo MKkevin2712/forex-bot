@@ -25,4 +25,5 @@ def create_broker(settings: Settings) -> Broker:
         path=settings.mt5_path,
         symbol_suffix=settings.mt5_symbol_suffix,
         magic=settings.mt5_magic,
+        utc_offset_hours=settings.mt5_utc_offset,
     )
