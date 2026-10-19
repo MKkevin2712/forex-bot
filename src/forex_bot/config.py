@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     poll_seconds: int = 60
     dry_run: bool = False
     log_level: str = "INFO"
+    log_file: Path | None = None  # journal technique en fichier (rotation à 2 Mo)
     strategy: StrategyParams = StrategyParams()
 
     # --- OANDA ---

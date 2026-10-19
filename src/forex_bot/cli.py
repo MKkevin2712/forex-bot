@@ -6,16 +6,24 @@ import argparse
 import json
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from forex_bot.config import ROOT, Settings
 
 
-def _setup_logging(level: str) -> None:
+def _setup_logging(level: str, log_file: Path | None = None) -> None:
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if log_file:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(
+            RotatingFileHandler(log_file, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        )
     logging.basicConfig(
         level=level.upper(),
         format="%(asctime)s %(levelname)-8s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=handlers,
     )
 
 
@@ -157,7 +165,7 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
     settings = Settings()
-    _setup_logging(settings.log_level)
+    _setup_logging(settings.log_level, settings.log_file)
     from forex_bot.brokers import BrokerError
 
     try:

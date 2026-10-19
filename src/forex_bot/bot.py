@@ -22,6 +22,7 @@ from forex_bot.strategy import compute_indicators, evaluate, snapshot, stop_and_
 log = logging.getLogger("forex_bot")
 
 EQUITY_EVERY = timedelta(minutes=30)
+MAX_CONSECUTIVE_FAILURES = 5
 
 
 class TradingBot:
@@ -52,9 +53,11 @@ class TradingBot:
             s.granularity,
             mode,
         )
+        failures = 0
         while True:
             try:
                 self.run_cycle()
+                failures = 0
             except BrokerAuthError:
                 log.critical("Identifiants refusés par le courtier : arrêt du bot")
                 self._set_status("arrêté : identifiants refusés")
@@ -63,6 +66,12 @@ class TradingBot:
                 log.exception("Erreur pendant le cycle, nouvel essai au prochain tour")
                 self.state.data["last_error"] = {"time": to_iso(self.clock()), "message": str(exc)}
                 self.state.save()
+                failures += 1
+                if failures >= MAX_CONSECUTIVE_FAILURES:
+                    # ex. terminal MT5 fermé : on s'arrête pour que le superviseur relance
+                    # le bot avec une connexion neuve
+                    log.critical("%d erreurs de suite : arrêt du bot", failures)
+                    raise
             time.sleep(s.poll_seconds if market_open(self.clock()) else 300)
 
     def run_cycle(self) -> None:

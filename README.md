@@ -75,6 +75,27 @@ uv run forex-bot reset                    # ferme les positions ouvertes par le 
 En développement du front : `uv run forex-bot api` dans un terminal et `npm run dev` dans
 `web/` (les appels `/api` sont redirigés vers le port 8000).
 
+## Faire tourner le bot en continu (Windows)
+
+Deux tâches planifiées démarrent à l'ouverture de la session Windows. Un superviseur les
+relance automatiquement si elles s'arrêtent, par exemple quand MetaTrader 5 a été fermé.
+
+| Tâche | Rôle |
+|---|---|
+| `ForexBot-Bot` | le bot (`forex-bot run`), qui ouvre lui-même MetaTrader 5 via `MT5_PATH` |
+| `ForexBot-Dashboard` | le tableau de bord sur http://127.0.0.1:8000 |
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_tasks.ps1    # installer et démarrer
+powershell -ExecutionPolicy Bypass -File scripts\status.ps1           # état + dernières lignes du journal
+powershell -ExecutionPolicy Bypass -File scripts\uninstall_tasks.ps1  # tout arrêter et désinstaller
+```
+
+Les journaux techniques sont dans `data/logs/` (`run.log`, `api.log`, `supervisor-*.log`).
+Les droits administrateur ne sont pas nécessaires. Pour que le bot tourne, le PC doit rester
+allumé et sans mise en veille ; dans MetaTrader 5, le mot de passe du compte doit être
+enregistré pour que la connexion se fasse seule.
+
 ## Tableau de bord
 
 - solde, valeur liquidative, P&L réalisé, taux de réussite, profit factor, drawdown ;

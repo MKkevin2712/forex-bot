@@ -103,6 +103,22 @@ def test_weekend_does_nothing(make_bot):
     assert "fermé" in bot.state.data["status"]
 
 
+def test_run_forever_stops_after_repeated_failures(make_bot, monkeypatch):
+    """Le bot s'arrête après des erreurs répétées pour que le superviseur le relance."""
+    from forex_bot import bot as bot_module
+
+    bot, broker, _ = make_bot()
+    monkeypatch.setattr(bot_module.time, "sleep", lambda s: None)
+
+    def broken():
+        raise ConnectionError("terminal MT5 fermé")
+
+    broker.account = broken
+    with pytest.raises(ConnectionError):
+        bot.run_forever()
+    assert "terminal MT5 fermé" in bot.state.data["last_error"]["message"]
+
+
 def test_max_open_trades(make_bot):
     candles = {"EUR_USD": trend_candles(400), "GBP_USD": trend_candles(400, start=1.3)}
     bot, broker, _ = make_bot(
