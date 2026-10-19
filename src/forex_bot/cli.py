@@ -1,4 +1,4 @@
-"""Ligne de commande : forex-bot run | backtest | download | reset | api."""
+"""Ligne de commande : forex-bot run | backtest | download | reset | report | api."""
 
 from __future__ import annotations
 
@@ -122,6 +122,30 @@ def cmd_reset(settings: Settings, args: argparse.Namespace) -> None:
         print(f"Position {trade_id} fermée.")
 
 
+def cmd_report(settings: Settings, args: argparse.Namespace) -> None:
+    from forex_bot.brokers import BrokerError, create_broker
+    from forex_bot.journal import create_journal
+    from forex_bot.report import build_report, format_discord, send_discord
+    from forex_bot.state import StateStore
+
+    try:
+        broker = create_broker(settings)
+    except BrokerError as exc:  # le bilan part quand même, avec les données du journal
+        logging.warning("Courtier injoignable pour le bilan : %s", exc)
+        broker = None
+    report = build_report(
+        create_journal(settings), settings, StateStore.read(settings.state_path), broker
+    )
+    payload = format_discord(report)
+    if args.print or not settings.discord_webhook_url:
+        if not args.print:
+            print("DISCORD_WEBHOOK_URL absent du .env : bilan affiché au lieu d'être envoyé.")
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    send_discord(settings.discord_webhook_url.get_secret_value(), payload)
+    logging.info("Bilan envoyé sur Discord (résultat du jour %.2f)", report["realized_today"])
+
+
 def cmd_api(settings: Settings, args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -157,6 +181,10 @@ def main(argv: list[str] | None = None) -> None:
     reset = sub.add_parser("reset", help="ferme toutes les positions ouvertes par le bot")
     reset.add_argument("--yes", action="store_true")
     reset.set_defaults(func=cmd_reset)
+
+    report = sub.add_parser("report", help="envoie le bilan des dernières 24 h sur Discord")
+    report.add_argument("--print", action="store_true", help="affiche le message sans l'envoyer")
+    report.set_defaults(func=cmd_report)
 
     api = sub.add_parser("api", help="lance l'API et le tableau de bord")
     api.add_argument("--host", default="127.0.0.1")

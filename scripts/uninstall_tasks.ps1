@@ -1,5 +1,5 @@
 ﻿# Arrête le bot et le tableau de bord, puis supprime leurs tâches planifiées.
-foreach ($name in @("ForexBot-Bot", "ForexBot-Dashboard")) {
+foreach ($name in @("ForexBot-Bot", "ForexBot-Dashboard", "ForexBot-Report")) {
     if (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue) {
         Stop-ScheduledTask -TaskName $name
         Unregister-ScheduledTask -TaskName $name -Confirm:$false

@@ -91,6 +91,13 @@ powershell -ExecutionPolicy Bypass -File scripts\status.ps1           # état + 
 powershell -ExecutionPolicy Bypass -File scripts\uninstall_tasks.ps1  # tout arrêter et désinstaller
 ```
 
+Une troisième tâche, `ForexBot-Report`, envoie chaque soir à 22 h un **bilan sur Discord** :
+résultat du jour, solde, positions ouvertes, trades clôturés, signaux et statistiques globales.
+Elle signale aussi un bot qui ne répond plus. Pour l'activer, créez un webhook dans Discord
+(Paramètres du salon → Intégrations → Webhooks) et ajoutez son URL au `.env` :
+`DISCORD_WEBHOOK_URL=...`. Pour tester : `forex-bot report`, ou `forex-bot report --print`
+pour afficher le message sans l'envoyer.
+
 Les journaux techniques sont dans `data/logs/` (`run.log`, `api.log`, `supervisor-*.log`).
 Les droits administrateur ne sont pas nécessaires. Pour que le bot tourne, le PC doit rester
 allumé et sans mise en veille ; dans MetaTrader 5, le mot de passe du compte doit être

@@ -93,6 +93,9 @@ class Settings(BaseSettings):
     supabase_url: str | None = None
     supabase_key: SecretStr | None = None
 
+    # --- Bilan quotidien ---
+    discord_webhook_url: SecretStr | None = None
+
     @field_validator("instruments", mode="before")
     @classmethod
     def _split_instruments(cls, value: object) -> object:

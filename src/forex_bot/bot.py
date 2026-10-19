@@ -23,6 +23,7 @@ log = logging.getLogger("forex_bot")
 
 EQUITY_EVERY = timedelta(minutes=30)
 MAX_CONSECUTIVE_FAILURES = 5
+SIGNAL_HISTORY = 200
 
 
 class TradingBot:
@@ -241,6 +242,18 @@ class TradingBot:
     def _analysis(self, instrument: str, data: dict, merge: bool = False) -> None:
         analyses = self.state.data.setdefault("analyses", {})
         analyses[instrument] = {**analyses.get(instrument, {}), **data} if merge else data
+        if data.get("signal"):
+            # historique des signaux (exécutés ou non) pour le bilan quotidien
+            signals = self.state.data.setdefault("signals", [])
+            signals.append(
+                {
+                    "time": data.get("time"),
+                    "instrument": instrument,
+                    "signal": data["signal"],
+                    "action": data.get("action"),
+                }
+            )
+            del signals[:-SIGNAL_HISTORY]
         self.state.save()
 
     def _set_status(self, status: str) -> None:
