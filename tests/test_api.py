@@ -67,6 +67,36 @@ def test_backtest_endpoint(settings):
     assert body["stats"]["trades"] > 0 and body["equity"]
 
 
+def test_reconnects_after_broker_error(settings):
+    """MT5 fermé puis rouvert : le tableau de bord ouvre une connexion neuve."""
+    from forex_bot.brokers import BrokerError
+
+    created = []
+
+    class Flaky(FakeBroker):
+        closed = False
+
+        def account(self):
+            if not created[1:] and self is created[0]:
+                raise BrokerError("IPC send failed")
+            return super().account()
+
+        def close(self):
+            self.closed = True
+
+    def factory(_):
+        created.append(Flaky({"EUR_USD": trend_candles(10)}))
+        return created[-1]
+
+    client = TestClient(
+        create_app(settings, broker_factory=factory, journal=SQLiteJournal(":memory:"))
+    )
+    first = client.get("/api/overview").json()
+    assert "IPC send failed" in first["broker_error"] and created[0].closed
+    second = client.get("/api/overview").json()
+    assert second["broker_error"] is None and len(created) == 2
+
+
 def test_broker_down_still_returns_journal(settings):
     from forex_bot.brokers import BrokerError
 

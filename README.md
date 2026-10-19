@@ -77,8 +77,10 @@ En développement du front : `uv run forex-bot api` dans un terminal et `npm run
 
 ## Faire tourner le bot en continu (Windows)
 
-Deux tâches planifiées démarrent à l'ouverture de la session Windows. Un superviseur les
-relance automatiquement si elles s'arrêtent, par exemple quand MetaTrader 5 a été fermé.
+Deux tâches planifiées démarrent à l'ouverture de la session Windows, puis sont revérifiées
+toutes les 5 minutes. Un superviseur relance le bot s'il s'arrête. Si MetaTrader 5 a été
+fermé, le bot s'arrête après 5 erreurs, et à sa relance il rouvre lui-même le terminal.
+Le tableau de bord rétablit aussi sa connexion après une coupure.
 
 | Tâche | Rôle |
 |---|---|

@@ -58,6 +58,9 @@ class MT5Broker(Broker):
             error = BrokerAuthError if login else BrokerError
             raise error(f"Connexion MT5 impossible ({code}) : {message}")
 
+    def close(self) -> None:
+        self.mt5.shutdown()
+
     # --- Symboles ---
     def _symbol(self, instrument: str) -> str:
         return instrument.replace("_", "") + self.suffix

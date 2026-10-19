@@ -17,7 +17,11 @@ $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -MultipleInstances IgnoreNew -StartWhenAvailable
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+# À l'ouverture de session, puis toutes les 5 minutes : si le superviseur a disparu (console
+# fermée, sortie de veille...), il redémarre ; s'il tourne déjà, l'exécution est ignorée.
+$watchdog = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+    -RepetitionInterval (New-TimeSpan -Minutes 5)
+$trigger = @((New-ScheduledTaskTrigger -AtLogOn -User $user), $watchdog)
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 
 foreach ($task in @(

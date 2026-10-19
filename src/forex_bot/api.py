@@ -64,6 +64,15 @@ def create_app(
                 raise HTTPException(503, f"Courtier indisponible : {exc}") from exc
         return cache["broker"]
 
+    def drop_broker() -> None:
+        """Après une erreur (ex. MT5 fermé puis rouvert), la prochaine requête se reconnecte."""
+        stale = cache.pop("broker", None)
+        if stale is not None:
+            try:
+                stale.close()
+            except Exception:
+                pass
+
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok", "time": to_iso(utcnow())}
@@ -83,8 +92,11 @@ def create_app(
                 {**t.__dict__, "direction": t.direction, "open_time": _clean(t.open_time)}
                 for t in b.open_trades()
             ]
-        except (HTTPException, BrokerError) as exc:
-            broker_error = getattr(exc, "detail", None) or str(exc)
+        except HTTPException as exc:
+            broker_error = exc.detail
+        except BrokerError as exc:
+            broker_error = str(exc)
+            drop_broker()
         return {
             "account": account,
             "positions": positions,
@@ -115,6 +127,7 @@ def create_app(
                 instrument, granularity or settings.granularity, settings.candle_count
             )
         except BrokerError as exc:
+            drop_broker()
             raise HTTPException(502, str(exc)) from exc
         df = compute_indicators(df, settings.strategy).tail(count)
         markers = [
@@ -162,6 +175,7 @@ def create_app(
                 conversions=conversions,
             )
         except BrokerError as exc:
+            drop_broker()
             raise HTTPException(502, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc

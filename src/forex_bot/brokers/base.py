@@ -56,6 +56,9 @@ class Broker(ABC):
     @abstractmethod
     def close_trade(self, trade_id: str) -> None: ...
 
+    def close(self) -> None:  # noqa: B027 (facultatif : seul MT5 garde une connexion ouverte)
+        """Libère la connexion (pour pouvoir en ouvrir une neuve après une coupure)."""
+
     def close_all(self) -> list[str]:
         closed = []
         for trade in self.open_trades():
