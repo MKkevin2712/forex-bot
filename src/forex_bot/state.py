@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from pathlib import Path
+
+log = logging.getLogger("forex_bot")
+RETRIES = 5
 
 
 class StateStore:
@@ -23,8 +28,18 @@ class StateStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
-        # écriture atomique : l'API ne lit jamais un fichier à moitié écrit
-        os.replace(tmp, self.path)
+        # Écriture atomique : l'API ne lit jamais un fichier à moitié écrit. Sous Windows, le
+        # remplacement échoue si un autre programme (tableau de bord, antivirus) lit le fichier
+        # à ce moment-là : on réessaie, puis on passe son tour plutôt que d'arrêter le bot.
+        for attempt in range(RETRIES):
+            try:
+                os.replace(tmp, self.path)
+                return
+            except PermissionError:
+                time.sleep(0.2 * (attempt + 1))
+        log.warning(
+            "État du bot non enregistré (%s occupé), nouvel essai au prochain tour", self.path.name
+        )
 
     @staticmethod
     def read(path: Path | str) -> dict:

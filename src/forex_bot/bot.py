@@ -130,9 +130,20 @@ class TradingBot:
         candles = self.broker.candles(instrument, s.granularity, s.candle_count)
         if candles.empty:
             return
-        candle_time = to_iso(candles["time"].iloc[-1].to_pydatetime())
-        if self.state.data["last_processed"].get(instrument) == candle_time:
-            return  # bougie déjà analysée : on attend la suivante
+        candle_open = candles["time"].iloc[-1].to_pydatetime()
+        candle_time = to_iso(candle_open)
+        last = self.state.data["last_processed"].get(instrument)
+        if last and datetime.fromisoformat(last) >= candle_open:
+            return  # bougie déjà analysée (ou plus ancienne) : on attend la suivante
+        # Juste après le démarrage de MT5, l'historique peut être en retard : on n'agit
+        # jamais sur une bougie clôturée depuis plus d'une période.
+        if now - (candle_open + s.candle_delta) > s.candle_delta:
+            log.info(
+                "%s : historique pas encore à jour (bougie de %s), on attend",
+                instrument,
+                candle_time,
+            )
+            return
         self.state.data["last_processed"][instrument] = candle_time
 
         row = compute_indicators(candles, p).iloc[-1]

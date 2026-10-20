@@ -1,6 +1,6 @@
 """Le bot en conditions réelles simulées, dont les bugs corrigés de la version crypto."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fakes import FakeBroker, trend_candles
@@ -12,6 +12,12 @@ from forex_bot.state import StateStore
 WEDNESDAY = datetime(2026, 10, 21, 12, tzinfo=UTC)
 
 
+def recent(n: int, **kwargs):
+    """Bougies H4 dont la 400e s'ouvre 8 h avant WEDNESDAY (la 401e, 4 h avant)."""
+    start = WEDNESDAY - timedelta(hours=8 + 4 * 399)
+    return trend_candles(n, start_time=start.isoformat(), **kwargs)
+
+
 @pytest.fixture
 def make_bot(settings):
     settings = settings.model_copy(
@@ -20,7 +26,7 @@ def make_bot(settings):
 
     def factory(candles=None, now=WEDNESDAY, **overrides):
         s = settings.model_copy(update=overrides)
-        broker = FakeBroker(candles or {"EUR_USD": trend_candles(400)})
+        broker = FakeBroker(candles or {"EUR_USD": recent(400)})
         journal = SQLiteJournal(":memory:")
         bot = TradingBot(broker, journal, s, StateStore(s.state_path), clock=lambda: now)
         return bot, broker, journal
@@ -44,7 +50,7 @@ def test_no_second_position_on_same_pair(make_bot):
     """Bug 1 de la version crypto : le bot rachetait alors qu'une position était ouverte."""
     bot, broker, _ = make_bot()
     bot.run_cycle()
-    broker._candles["EUR_USD"] = trend_candles(401)  # nouvelle bougie, signal toujours présent
+    broker._candles["EUR_USD"] = recent(401)  # nouvelle bougie, signal toujours présent
     bot.run_cycle()
     assert len(broker.orders) == 1
     assert "déjà ouverte" in bot.state.data["analyses"]["EUR_USD"]["action"]
@@ -56,6 +62,23 @@ def test_same_candle_not_processed_twice(make_bot):
     broker.trades.clear()
     bot.run_cycle()
     assert len(broker.orders) == 1
+
+
+def test_stale_or_older_candles_are_ignored(make_bot):
+    """MT5 qui démarre fournit d'abord un historique en retard : aucune décision dessus."""
+    candles = trend_candles(400)  # dernière bougie : 2026-03-10, des mois avant WEDNESDAY
+    bot, broker, _ = make_bot(candles={"EUR_USD": candles})
+    bot.run_cycle()
+    assert broker.orders == [] and "EUR_USD" not in bot.state.data["last_processed"]
+
+    fresh = recent(400)
+    bot2, broker2, _ = make_bot(candles={"EUR_USD": fresh})
+    bot2.run_cycle()
+    assert len(broker2.orders) == 1
+    broker2.trades.clear()
+    broker2._candles["EUR_USD"] = fresh.head(399)  # historique qui « recule »
+    bot2.run_cycle()
+    assert len(broker2.orders) == 1
 
 
 def test_position_without_stop_is_closed(make_bot):
@@ -83,7 +106,7 @@ def test_daily_loss_limit_blocks_new_trades(make_bot):
     bot.run_cycle()
     trade_id = journal.trades()[0]["broker_trade_id"]
     broker.hit(trade_id, "SL", -400.0, when=WEDNESDAY)
-    broker._candles["EUR_USD"] = trend_candles(401)
+    broker._candles["EUR_USD"] = recent(401)
     bot.run_cycle()
     assert len(broker.orders) == 1
     assert "perte journalière" in bot.state.data["analyses"]["EUR_USD"]["action"]
@@ -120,7 +143,7 @@ def test_run_forever_stops_after_repeated_failures(make_bot, monkeypatch):
 
 
 def test_max_open_trades(make_bot):
-    candles = {"EUR_USD": trend_candles(400), "GBP_USD": trend_candles(400, start=1.3)}
+    candles = {"EUR_USD": recent(400), "GBP_USD": recent(400, start=1.3)}
     bot, broker, _ = make_bot(
         candles=candles, instruments=["EUR_USD", "GBP_USD"], max_open_trades=1
     )
